@@ -1428,7 +1428,8 @@ function renderStats() {
   let h = '';
   if (IS_WEB && !LS.get('ui.onbDone', 0) && (!syncCfg.token || !sessions.length)) {
     h += `<div class="onb"><b>시작하기 ✦</b>
-      ${!IS_MOBILE && !sessions.length ? `<div>· 예전 PC 버전(바탕화면 파일) 기록 옮기기: 예전 Orbit 창 → 설정 → 데이터 → <b>백업 파일로 저장</b> → 여기서 <button class="linkbtn" data-onb="import">백업 불러오기</button></div>` : ''}
+      <div>· 기록은 <b>이 기기에만</b> 저장돼요 · 다른 사람과 섞이지 않아요</div>
+      ${!sessions.length ? `<div>· 백업 파일이 있다면: <button class="linkbtn" data-onb="import">백업 불러오기</button></div>` : ''}
       ${!syncCfg.token ? `<div>· PC · 아이패드 기록 합치기: <button class="linkbtn" data-onb="sync">동기화 설정</button></div>` : ''}
       <button class="onb-x" data-onb="close" aria-label="닫기">${'×'}</button></div>`;
   }
