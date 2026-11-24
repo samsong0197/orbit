@@ -477,6 +477,13 @@ button,.chip,.ctrl{touch-action:manipulation}
   .controls{margin:10px 0 14px}
 }
 
+/* 직접 설정 · 휴식 직접 입력 */
+.stepper.sm{margin:10px 0 2px}
+.stepper.sm button{width:30px;height:30px;font-size:16px}
+.stepper.sm input{width:52px;font-size:20px}
+.stepper.sm .sv{min-width:110px}
+.stepper.sm .sv small{font-size:12px}
+
 </style>
 </head>
 <body data-phase="idle">
@@ -668,7 +675,7 @@ function revive(recs) { const t = Date.now(); for (const r of recs) if (r) { del
 const DEFAULT_STATE = {
   phase: 'idle', preset: settings.lastPreset || '30', focusSec: 1800, breakSec: 180, isLong: false,
   running: false, endAt: 0, remain: 1500, phaseStart: 0, segStart: 0, accum: 0,
-  set25: 0, setDay: '', breakOverride: null, subject: 'im',
+  set25: 0, setDay: '', breakOverride: null, subject: 'im', breakOnly: false,
 };
 let S = Object.assign({ ...DEFAULT_STATE }, LS.get('state', {}));
 const saveState = () => LS.set('state', S);
@@ -909,7 +916,7 @@ function startFocus(key, o = {}) {
   if (S.setDay !== dk) { S.set25 = 0; S.setDay = dk; }
   if (key !== S.preset) S.breakOverride = null;
   S.preset = key; settings.lastPreset = key; saveSettings();
-  Object.assign(S, { phase: 'focus', isLong: false, focusSec: presetFocusSec(key), running: true, phaseStart: t, segStart: t, accum: 0 });
+  Object.assign(S, { phase: 'focus', isLong: false, breakOnly: false, focusSec: presetFocusSec(key), running: true, phaseStart: t, segStart: t, accum: 0 });
   S.endAt = t + S.focusSec * 1000; S.remain = S.focusSec;
   saveState(); phaseChanged();
   if (!o.auto) {
@@ -932,7 +939,7 @@ function startBreak(sec, isLong, running) {
   saveState(); phaseChanged();
 }
 function toIdle() {
-  Object.assign(S, { phase: 'idle', running: false, isLong: false, accum: 0, phaseStart: 0, endAt: 0, remain: presetFocusSec(S.preset) });
+  Object.assign(S, { phase: 'idle', running: false, isLong: false, breakOnly: false, accum: 0, phaseStart: 0, endAt: 0, remain: presetFocusSec(S.preset) });
   saveState(); phaseChanged();
 }
 function pause() {
@@ -1002,6 +1009,17 @@ function completeFocus(endT, late) {
 }
 function completeBreak(late, skipped) {
   const pre = LS.get('ui.preSched', '') === phaseKey();
+  if (S.breakOnly) {                       // '휴식만' 타이머: 끝나면 집중을 시작하지 않고 대기
+    if (late) { toIdle(); toast('자리를 비운 사이 휴식이 끝났어요'); return; }
+    if (!skipped) {
+      Sound.play('breakEnd', { reps: S.breakSec <= 30 ? 1 : 0 });
+      announce({
+        title: '휴식 끝', body: '준비되면 집중을 시작해요',
+        push: settings.push.breakEnd && S.breakSec >= 60 && !pre ? { title: '휴식 끝', message: `${fmtDur(S.breakSec)} 휴식이 끝났어요 · Orbit에서 집중을 시작해요`, tags: ['books'], priority: 4 } : null,
+      });
+    }
+    toIdle(); return;
+  }
   if (S.isLong) S.set25 = 0;
   if (late) { toIdle(); toast('자리를 비운 사이 휴식이 끝났어요'); return; }
   if (!skipped) {
@@ -1049,14 +1067,18 @@ function stop() {
     onAction: () => { S = snap.S; forget(sessions.slice(snap.n)); sessions.length = snap.n; saveSessions(); saveState(); Sky.refresh(); phaseChanged(); },
   });
 }
-function switchTo(key) {
-  const t = now();
-  if (S.phase === 'focus') {
-    const el = focusElapsedMs(t) / 1000;
-    const rec = logFocus(t, el >= S.focusSec * 0.9);
-    if (rec && rec.d) { if (S.preset === LONG_KEY) S.set25++; Sky.addStar(rec, true); }
-  }
-  startFocus(key);
+function closeRunningFocus() {
+  if (S.phase !== 'focus') return;
+  const t = now(), el = focusElapsedMs(t) / 1000;
+  const rec = logFocus(t, el >= S.focusSec * 0.9);
+  if (rec && rec.d) { if (S.preset === LONG_KEY) S.set25++; Sky.addStar(rec, true); }
+}
+function switchTo(key) { closeRunningFocus(); startFocus(key); }
+function startBreakOnly(sec) {
+  Sound.ensure();
+  closeRunningFocus();
+  S.breakOverride = null; S.breakOnly = true;
+  startBreak(sec, false, true);
 }
 function adjust(d) {
   if (S.phase === 'idle') return;
@@ -1159,7 +1181,7 @@ function renderAll() {
   // 다음 안내
   if (S.phase === 'break') {
     el.nextPill.hidden = false;
-    el.nextTxt.textContent = settings.autoFocus ? `다음 · ${presetLabel(S.preset)} 집중` : '끝나면 대기';
+    el.nextTxt.textContent = S.breakOnly ? '휴식만 · 끝나면 대기' : settings.autoFocus ? `다음 · ${presetLabel(S.preset)} 집중` : '끝나면 대기';
     el.nextPill.classList.remove('over');
     el.nextPill.title = '지금 휴식 길이 바꾸기';
   } else {
@@ -1374,22 +1396,31 @@ function subjectPopover(anchor, onPick, current) {
 }
 function customPopover(anchor) {
   let f = Math.round(settings.custom.focus / 60), br = settings.custom.brk;
+  let bc = !BREAKS.includes(br), bm = bc ? Math.max(1, Math.round(br / 60)) : 7;   // 휴식 직접 입력(분)
   const quick = [10, 20, 30, 40, 45, 50, 90];
   const draw = () => `<h4>직접 설정</h4>
     <div class="stepper"><button data-d="-1" aria-label="줄이기">−</button><div class="sv"><input id="cf" type="number" min="1" max="240" value="${f}" autofocus><small>분</small></div><button data-d="1" aria-label="늘리기">+</button></div>
     <div class="opts">${quick.map(q => `<button class="opt${q === f ? ' on' : ''}" data-q="${q}">${q}분</button>`).join('')}</div>
     <div class="lab">휴식</div>
-    <div class="opts">${BREAKS.map(b => `<button class="opt${b === br ? ' on' : ''}" data-b="${b}">${fmtDur(b)}</button>`).join('')}</div>
-    <div class="btns"><button class="btn pri" data-go>${S.phase === 'focus' ? '바꿔서 시작' : '시작'}</button></div>
-    ${S.phase === 'focus' ? '<div class="note">진행 중인 집중 시간은 기록돼요</div>' : ''}`;
+    <div class="opts">${BREAKS.map(b => `<button class="opt${!bc && b === br ? ' on' : ''}" data-b="${b}">${fmtDur(b)}</button>`).join('')}<button class="opt${bc ? ' on' : ''}" data-bc>직접</button></div>
+    <div class="stepper sm" id="cbRow"${bc ? '' : ' hidden'}><button data-bd="-1" aria-label="휴식 줄이기">−</button><div class="sv"><input id="cb" type="number" min="1" max="120" value="${bm}"><small>분 휴식</small></div><button data-bd="1" aria-label="휴식 늘리기">+</button></div>
+    <div class="btns"><button class="btn" data-rest>휴식만 시작</button><button class="btn pri" data-go>${S.phase === 'focus' ? '바꿔서 시작' : '시작'}</button></div>
+    <div class="note">휴식만 시작: 집중 없이 고른 휴식 타이머만 돌아가요 · 끝나면 대기${S.phase === 'focus' ? '<br>진행 중인 집중 시간은 기록돼요' : ''}</div>`;
   const bind = p => {
     const inp = p.querySelector('#cf');
     inp.oninput = () => { f = clamp(parseInt(inp.value) || 1, 1, 240); p.querySelectorAll('[data-q]').forEach(x => x.classList.toggle('on', +x.dataset.q === f)); };
     inp.onkeydown = e => { if (e.key === 'Enter') go(); };
     p.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { const st = f < 10 || (f === 10 && +b.dataset.d < 0) ? 1 : 5; f = clamp(f + st * b.dataset.d, 1, 240); inp.value = f; inp.oninput(); });
     p.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { f = +b.dataset.q; inp.value = f; inp.oninput(); });
-    p.querySelectorAll('[data-b]').forEach(b => b.onclick = () => { br = +b.dataset.b; p.querySelectorAll('[data-b]').forEach(x => x.classList.toggle('on', x === b)); });
+    const row = p.querySelector('#cbRow'), cb = p.querySelector('#cb'), bcBtn = p.querySelector('[data-bc]');
+    const markBreak = () => { p.querySelectorAll('[data-b]').forEach(x => x.classList.toggle('on', !bc && +x.dataset.b === br)); bcBtn.classList.toggle('on', bc); row.hidden = !bc; };
+    p.querySelectorAll('[data-b]').forEach(b => b.onclick = () => { br = +b.dataset.b; bc = false; markBreak(); });
+    bcBtn.onclick = () => { bc = true; br = bm * 60; markBreak(); setTimeout(() => { cb.focus(); cb.select(); }, 20); };
+    cb.oninput = () => { bm = clamp(parseInt(cb.value) || 1, 1, 120); br = bm * 60; };
+    cb.onkeydown = e => { if (e.key === 'Enter') go(); };
+    p.querySelectorAll('[data-bd]').forEach(b => b.onclick = () => { bm = clamp(bm + (+b.dataset.bd), 1, 120); cb.value = bm; br = bm * 60; });
     p.querySelector('[data-go]').onclick = go;
+    p.querySelector('[data-rest]').onclick = () => { settings.custom = { focus: f * 60, brk: br }; saveSettings(); closePop(); startBreakOnly(br); };
   };
   const go = () => { settings.custom = { focus: f * 60, brk: br }; saveSettings(); closePop(); if (S.phase === 'focus') switchTo('custom'); else startFocus('custom'); };
   openPop(anchor, draw(), bind);
