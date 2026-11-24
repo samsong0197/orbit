@@ -802,7 +802,7 @@ const Sound = (() => {
 })();
 
 /* ---------- notifications ---------- */
-let notifGrantedNow = false;
+let notifGrantedNow = false, permPending = false;
 const canNotify = () => 'Notification' in window && (Notification.permission === 'granted' || notifGrantedNow);
 function notify(title, body, force) {
   if ((!settings.notify && !force) || !canNotify()) return false;
@@ -1235,6 +1235,7 @@ function renderDday() {
   $('#ddayVal').textContent = i.txt;
 }
 function updateTitle() {
+  if (permPending) return; // 권한 창이 떠 있는 동안 창 제목을 바꾸지 않음 (크롬이 클릭을 무시하지 않게)
   if (attn.until > now() && document.hidden && Math.floor(now() / 1000) % 2 === 0) { document.title = attn.text; return; }
   if (S.phase === 'idle') { document.title = 'Orbit'; return; }
   const ko = S.phase === 'focus' ? '집중' : (S.isLong ? '긴 휴식' : '휴식');
@@ -1250,6 +1251,7 @@ const Fav = (() => {
   const g = c.getContext('2d'); let last = '';
   const link = $('#favicon');
   function update(force) {
+    if (permPending) return;
     const tot = totalSec(), rem = remaining();
     const p = S.phase === 'idle' ? .83 : clamp(1 - rem / Math.max(1, tot), .02, 1);
     const kind = S.phase === 'break' ? (S.isLong ? 'long' : 'break') : S.phase;
@@ -1559,7 +1561,8 @@ function renderDrawer() {
     <div class="row"><span class="rl">다른 창을 쓰는 중에도 팝업<small>${notifState}</small></span>${tg('notify', notifOn)}</div>
     ${notifOn ? `<div class="row"><span class="rl">클릭할 때까지 화면에 남기기<small>끄면 몇 초 뒤 알림 센터로 들어가요</small></span>${tg('notifySticky', settings.notifySticky)}</div>
     <div class="row"><span class="rl"><small>알림이 안 보이면 윈도우 '방해 금지(집중 지원)'가 켜져 있는지 확인해 주세요</small></span><button class="btn" data-act="testNotify" style="padding:6px 12px;font-size:12px">테스트</button></div>` : ''}
-    ${notifBlocked ? `<div class="help">브라우저가 Orbit의 알림을 막고 있어요. 주소창 왼쪽 아이콘(또는 앱 메뉴 → 사이트 설정)에서 알림을 <b>허용</b>으로 바꾸거나, 아래 <b>휴대폰 · 아이패드</b>를 켠 뒤 <b>[PC에서도 받기]</b>로 받을 수 있어요.</div>` : ''}
+    ${!notifOn ? `<div class="help"><b>'허용'을 눌러도 안 될 때</b><br>1. 아래 <b>[설정 주소 복사]</b> → 크롬 새 탭 주소창에 붙여넣기 → Enter<br>2. <b>알림</b> 항목을 <b>허용</b>으로 바꾸기<br>3. Orbit으로 돌아오면 자동으로 켜져요 ✦</div>
+    <div class="btns" style="margin-top:8px"><button class="btn" data-act="copySiteSettings">설정 주소 복사</button></div>` : ''}
   </div>`}
   <div class="set" id="set-push"><span class="sec">휴대폰 · 아이패드<span class="en">PHONE</span></span>
     <div class="row"><span class="rl">폰·아이패드로도 알림 보내기<small>무료 앱 ntfy로 받아요 · 따로 계정 필요 없음</small></span>${tg('push.on', settings.push.on)}</div>
@@ -1643,6 +1646,12 @@ dBody.addEventListener('click', async e => {
   else if (d.act === 'addSubj') { addSubject(); }
   else if (d.act === 'resetPair') { settings.pair = { ...DEFAULT_PAIR }; toast('기본 묶음으로 되돌렸어요'); }
   else if (d.act === 'test') { Sound.play('test'); return; }
+  else if (d.act === 'copySiteSettings') {
+    LS.set('ui.wantNotify', 1);
+    const u = 'chrome://settings/content/siteDetails?site=' + encodeURIComponent(location.origin);
+    toast(await copyText(u) ? '복사했어요 · 크롬 새 탭 주소창에 붙여넣고 Enter' : u, { ms: 6000 });
+    return;
+  }
   else if (d.act === 'testNotify') {
     if (!notify('Orbit 테스트 알림 ✦', '집중·휴식이 끝나면 이렇게 알려드려요', true)) toast('알림을 띄우지 못했어요 · 크롬 알림 권한을 확인해 주세요', { ms: 4500 });
     return;
@@ -1698,12 +1707,33 @@ async function setNotify(on) {
   if (!on) { settings.notify = false; return; }
   if (!('Notification' in window)) { toast('이 브라우저는 알림을 지원하지 않아요'); return; }
   let p = Notification.permission;
-  if (p !== 'granted') { try { p = await Notification.requestPermission(); } catch (e) {} }
+  LS.set('ui.wantNotify', 1);
+  if (p !== 'granted') {
+    permPending = true;
+    try { p = await Notification.requestPermission(); } catch (e) {}
+    finally { permPending = false; updateTitle(); Fav.update(true); }
+  }
   if (p === 'granted') {
     settings.notify = true; notifGrantedNow = true;
     try { new Notification('Orbit 알림이 켜졌어요 ✦', { body: '집중과 휴식이 끝나면 여기로 알려드릴게요', icon: ICON_PNG, silent: true }); } catch (e) {}
-  } else { settings.notify = false; toast('크롬에서 알림이 막혀 있어요 · 아래 [PC에서도 받기]로 받을 수 있어요', { ms: 5000 }); setTimeout(() => openDrawer('set-alert'), 300); }
+  } else {
+    settings.notify = false;
+    toast(p === 'denied' ? '크롬에서 알림이 막혀 있어요 · 설정의 안내대로 허용해 주세요' : '알림 허용이 되지 않았어요 · 설정의 안내를 참고해 주세요', { ms: 5000 });
+    setTimeout(() => openDrawer('set-alert'), 300);
+  }
 }
+// 크롬 설정에서 직접 허용해도 자동으로 켜지게
+function onNotifPermission(state) {
+  if (state === 'granted' && LS.get('ui.wantNotify', 0) && !settings.notify) {
+    settings.notify = true; notifGrantedNow = true; saveSettings(); renderAll();
+    if (drawer.classList.contains('open')) renderDrawer();
+    toast('윈도우 알림이 켜졌어요 ✦');
+  } else if (drawer.classList.contains('open') && !dBody.contains(document.activeElement)) renderDrawer();
+}
+if (navigator.permissions && navigator.permissions.query) {
+  navigator.permissions.query({ name: 'notifications' }).then(st => { st.onchange = () => onNotifPermission(st.state); if (st.state === 'granted') onNotifPermission('granted'); }).catch(() => {});
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && 'Notification' in window && Notification.permission === 'granted') onNotifPermission('granted'); });
 function exportData() {
   const data = { app: 'orbit', v: 1, at: new Date().toISOString(), settings, sessions };
   const a = document.createElement('a');
