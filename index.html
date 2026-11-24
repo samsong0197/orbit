@@ -607,11 +607,13 @@ const PRESETS = [
   { key: '3',  sec: 180,  v: '3',  u: '분' },
   { key: '5',  sec: 300,  v: '5',  u: '분' },
   { key: '15', sec: 900,  v: '15', u: '분' },
-  { key: '25', sec: 1500, v: '25', u: '분' },
+  { key: '30', sec: 1800, v: '30', u: '분' },
   { key: '60', sec: 3600, v: '1',  u: '시간' },
 ];
 const BREAKS = [10, 60, 180, 300, 600, 900];
-const DEFAULT_PAIR = { '3': 10, '5': 60, '15': 180, '25': 300, '60': 600 };
+const DEFAULT_PAIR = { '3': 10, '5': 10, '15': 60, '30': 180, '60': 600 };
+const LONG_KEY = '30';                       // 긴 휴식이 적용되는 기본 집중 단위
+const MAIN_KEYS = ['3', '5', '15', '30', '60'];
 const PALETTE = [
   ['#4dabf7', '#74c0fc'], ['#9775fa', '#b197fc'], ['#f783ac', '#faa2c1'], ['#da77f2', '#e599f7'],
   ['#fcc419', '#ffe066'], ['#20c997', '#63e6be'], ['#ff922b', '#ffc078'], ['#51cf66', '#8ce99a'],
@@ -627,7 +629,7 @@ const DEFAULTS = {
   goalMin: 180, ddayName: '국시', ddayDate: '2027-01-07', dayStart: 4,
   theme: 'dark', motion: true, keepAwake: true, su: 0,
   custom: { focus: 2400, brk: 300 },
-  subjects: DEFAULT_SUBJECTS, lastPreset: '25',
+  subjects: DEFAULT_SUBJECTS, lastPreset: '30',
 };
 const BREAK_TIPS = [
   '물 한 잔 마시기 💧', '20-20-20 · 먼 곳을 20초 바라보기 👀', '어깨 돌리고 목 스트레칭 🙆',
@@ -664,13 +666,15 @@ function forget(recs) { const t = Date.now(); for (const r of recs) if (r) tomb[
 function revive(recs) { const t = Date.now(); for (const r of recs) if (r) { delete tomb[r.id]; r.u = t; } }
 
 const DEFAULT_STATE = {
-  phase: 'idle', preset: settings.lastPreset || '25', focusSec: 1500, breakSec: 300, isLong: false,
+  phase: 'idle', preset: settings.lastPreset || '30', focusSec: 1800, breakSec: 180, isLong: false,
   running: false, endAt: 0, remain: 1500, phaseStart: 0, segStart: 0, accum: 0,
   set25: 0, setDay: '', breakOverride: null, subject: 'im',
 };
 let S = Object.assign({ ...DEFAULT_STATE }, LS.get('state', {}));
 const saveState = () => LS.set('state', S);
 if (!settings.subjects.some(x => x.id === S.subject)) S.subject = settings.subjects[0].id;
+if (!MAIN_KEYS.includes(settings.lastPreset) && settings.lastPreset !== 'custom') settings.lastPreset = LONG_KEY;
+if (!MAIN_KEYS.includes(S.preset) && S.preset !== 'custom') S.preset = LONG_KEY;
 if (S.phase === 'idle') S.remain = presetFocusSec(S.preset);
 
 /* ---------- time helpers ---------- */
@@ -892,7 +896,7 @@ function totalSec() { return S.phase === 'focus' ? S.focusSec : S.phase === 'bre
 
 function upcomingBreak(preset = S.preset) {
   let sec = S.breakOverride ?? presetBreakSec(preset), isLong = false;
-  if (settings.longOn && preset === '25') {
+  if (settings.longOn && preset === LONG_KEY) {
     const base = S.setDay === todayKey() ? S.set25 : 0;
     if ((base + 1) % settings.longEvery === 0) { isLong = true; if (S.breakOverride == null) sec = settings.longSec; }
   }
@@ -971,7 +975,7 @@ function completeFocus(endT, late) {
   const pre = LS.get('ui.preSched', '') === phaseKey();
   const ub = upcomingBreak();
   const rec = logFocus(endT, true);
-  if (S.preset === '25') S.set25++;
+  if (S.preset === LONG_KEY) S.set25++;
   S.breakOverride = null;
   if (late) {
     if (ub.isLong) S.set25 = 0;
@@ -1021,7 +1025,7 @@ function skip() {
     const t = now(), el = focusElapsedMs(t) / 1000, done = el >= S.focusSec * 0.9;
     const ub = done ? upcomingBreak() : { sec: S.breakOverride ?? presetBreakSec(S.preset), isLong: false };
     const rec = logFocus(t, done);
-    if (done && S.preset === '25') S.set25++;
+    if (done && S.preset === LONG_KEY) S.set25++;
     S.breakOverride = null;
     startBreak(ub.sec, ub.isLong, true);
     if (rec && rec.d) celebrate(rec);
@@ -1035,7 +1039,7 @@ function stop() {
   if (S.phase === 'focus') {
     const t = now(), el = focusElapsedMs(t) / 1000;
     rec = logFocus(t, el >= S.focusSec * 0.9);
-    if (rec && rec.d && S.preset === '25') S.set25++;
+    if (rec && rec.d && S.preset === LONG_KEY) S.set25++;
     if (rec && rec.d) Sky.addStar(rec, true);
   }
   S.breakOverride = null;
@@ -1050,7 +1054,7 @@ function switchTo(key) {
   if (S.phase === 'focus') {
     const el = focusElapsedMs(t) / 1000;
     const rec = logFocus(t, el >= S.focusSec * 0.9);
-    if (rec && rec.d) { if (S.preset === '25') S.set25++; Sky.addStar(rec, true); }
+    if (rec && rec.d) { if (S.preset === LONG_KEY) S.set25++; Sky.addStar(rec, true); }
   }
   startFocus(key);
 }
@@ -1192,7 +1196,7 @@ function renderPresets() {
   el.presets.innerHTML = h;
 }
 function renderDots() {
-  const show = settings.longOn && S.preset === '25';
+  const show = settings.longOn && S.preset === LONG_KEY;
   el.dots.style.visibility = show ? 'visible' : 'hidden';
   if (!show) { el.dots.innerHTML = '<i></i>'; return; }
   const N = settings.longEvery, base = S.setDay === todayKey() ? S.set25 : 0;
@@ -1564,7 +1568,7 @@ function renderDrawer() {
     <div class="row" style="border:0;padding-top:10px"><span class="rl"><small>프리셋을 누르면 짝지어진 휴식이 자동으로 따라와요</small></span><button class="btn" data-act="resetPair" style="padding:6px 12px;font-size:12px">기본값</button></div>
   </div>
   <div class="set"><span class="sec">긴 휴식<span class="en">LONG BREAK</span></span>
-    <div class="row"><span class="rl">25분을 여러 번 하면 긴 휴식<small>${settings.longEvery}번째 휴식은 ${fmtDur(settings.longSec)}</small></span>${tg('longOn', settings.longOn)}</div>
+    <div class="row"><span class="rl">${LONG_KEY}분을 여러 번 하면 긴 휴식<small>${settings.longEvery}번째 휴식은 ${fmtDur(settings.longSec)}</small></span>${tg('longOn', settings.longOn)}</div>
     <div class="row"><span class="rl">몇 회마다</span>${sm('longEvery', settings.longEvery, settings.longEvery + '회')}</div>
     <div class="row"><span class="rl">긴 휴식 길이</span><div class="mini">${BREAKS.filter(b => b >= 300).map(b => `<button data-long="${b}" class="${settings.longSec === b ? 'on' : ''}">${fmtDur(b)}</button>`).join('')}</div></div>
   </div>
@@ -1623,7 +1627,7 @@ function renderDrawer() {
     <div class="row"><span class="rl">모든 기록 지우기</span><button class="btn warn" data-act="wipe" style="padding:6px 12px;font-size:12px">지우기</button></div>
   </div>
   <div class="set"><span class="sec">단축키<span class="en">KEYS</span></span>
-    <div class="keys"><kbd>Space</kbd><span>시작 · 일시정지</span><kbd>1</kbd><span>~ <kbd>5</kbd> 프리셋 바로 시작 (3·5·15·25·60분)</span><kbd>S</kbd><span>건너뛰기</span><kbd>↑ ↓</kbd><span>남은 시간 ±1분</span><kbd>M</kbd><span>미니 타이머 (항상 위)</span><kbd>T</kbd><span>기록 보기</span><kbd>,</kbd><span>설정</span></div>
+    <div class="keys"><kbd>Space</kbd><span>시작 · 일시정지</span><kbd>1</kbd><span>~ <kbd>5</kbd> 프리셋 바로 시작 (3·5·15·30·60분)</span><kbd>S</kbd><span>건너뛰기</span><kbd>↑ ↓</kbd><span>남은 시간 ±1분</span><kbd>M</kbd><span>미니 타이머 (항상 위)</span><kbd>T</kbd><span>기록 보기</span><kbd>,</kbd><span>설정</span></div>
   </div>
   <div class="about">Orbit · 뽀모도로 ✦<br>한 세션을 끝낼 때마다 오늘의 하늘에 별이 하나씩 떠요.</div>`;
   renderPushStatus();
