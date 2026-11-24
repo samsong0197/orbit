@@ -1396,22 +1396,32 @@ function subjectPopover(anchor, onPick, current) {
 }
 function customPopover(anchor) {
   let f = Math.round(settings.custom.focus / 60), br = settings.custom.brk;
-  let bc = !BREAKS.includes(br), bm = bc ? Math.max(1, Math.round(br / 60)) : 7;   // 휴식 직접 입력(분)
+  let rest = false;                                                    // '휴식만' 선택 여부
+  let bc = !BREAKS.includes(br), bm = bc ? Math.max(1, Math.round(br / 60)) : 7;
   const quick = [10, 20, 30, 40, 45, 50, 90];
-  const draw = () => `<h4>직접 설정</h4>
-    <div class="stepper"><button data-d="-1" aria-label="줄이기">−</button><div class="sv"><input id="cf" type="number" min="1" max="240" value="${f}" autofocus><small>분</small></div><button data-d="1" aria-label="늘리기">+</button></div>
-    <div class="opts">${quick.map(q => `<button class="opt${q === f ? ' on' : ''}" data-q="${q}">${q}분</button>`).join('')}</div>
+  const draw = () => `<h4>집중</h4>
+    <div class="lab" style="margin-top:0">직접 설정</div>
+    <div class="stepper" id="cfRow"><button data-d="-1" aria-label="줄이기">−</button><div class="sv"><input id="cf" type="number" min="1" max="240" value="${f}" autofocus><small>분</small></div><button data-d="1" aria-label="늘리기">+</button></div>
+    <div class="opts"><button class="opt" data-rest>휴식만</button>${quick.map(q => `<button class="opt${q === f ? ' on' : ''}" data-q="${q}">${q}분</button>`).join('')}</div>
     <div class="lab">휴식</div>
     <div class="opts">${BREAKS.map(b => `<button class="opt${!bc && b === br ? ' on' : ''}" data-b="${b}">${fmtDur(b)}</button>`).join('')}<button class="opt${bc ? ' on' : ''}" data-bc>직접</button></div>
-    <div class="stepper sm" id="cbRow"${bc ? '' : ' hidden'}><button data-bd="-1" aria-label="휴식 줄이기">−</button><div class="sv"><input id="cb" type="number" min="1" max="120" value="${bm}"><small>분 휴식</small></div><button data-bd="1" aria-label="휴식 늘리기">+</button></div>
-    <div class="btns"><button class="btn" data-rest>휴식만 시작</button><button class="btn pri" data-go>${S.phase === 'focus' ? '바꿔서 시작' : '시작'}</button></div>
-    <div class="note">휴식만 시작: 집중 없이 고른 휴식 타이머만 돌아가요 · 끝나면 대기${S.phase === 'focus' ? '<br>진행 중인 집중 시간은 기록돼요' : ''}</div>`;
+    <div class="stepper sm" id="cbRow"${bc ? '' : ' hidden'}><button data-bd="-1" aria-label="휴식 줄이기">−</button><div class="sv"><input id="cb" type="number" min="1" max="120" value="${bm}"><small>분</small></div><button data-bd="1" aria-label="휴식 늘리기">+</button></div>
+    <div class="btns"><button class="btn pri" data-go>${S.phase === 'focus' ? '바꿔서 시작' : '시작'}</button></div>
+    <div class="note" id="cNote">${S.phase === 'focus' ? '진행 중인 집중 시간은 기록돼요' : ''}</div>`;
   const bind = p => {
-    const inp = p.querySelector('#cf');
-    inp.oninput = () => { f = clamp(parseInt(inp.value) || 1, 1, 240); p.querySelectorAll('[data-q]').forEach(x => x.classList.toggle('on', +x.dataset.q === f)); };
+    const inp = p.querySelector('#cf'), cfRow = p.querySelector('#cfRow'), restBtn = p.querySelector('[data-rest]'), goBtn = p.querySelector('[data-go]'), note = p.querySelector('#cNote');
+    const markFocus = () => {
+      restBtn.classList.toggle('on', rest);
+      p.querySelectorAll('[data-q]').forEach(x => x.classList.toggle('on', !rest && +x.dataset.q === f));
+      cfRow.style.opacity = rest ? '.35' : '';
+      goBtn.textContent = rest ? '휴식 시작' : (S.phase === 'focus' ? '바꿔서 시작' : '시작');
+      note.textContent = rest ? '집중 없이 휴식만 · 끝나면 대기' : (S.phase === 'focus' ? '진행 중인 집중 시간은 기록돼요' : '');
+    };
+    inp.oninput = () => { f = clamp(parseInt(inp.value) || 1, 1, 240); rest = false; markFocus(); };
     inp.onkeydown = e => { if (e.key === 'Enter') go(); };
     p.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { const st = f < 10 || (f === 10 && +b.dataset.d < 0) ? 1 : 5; f = clamp(f + st * b.dataset.d, 1, 240); inp.value = f; inp.oninput(); });
     p.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { f = +b.dataset.q; inp.value = f; inp.oninput(); });
+    restBtn.onclick = () => { rest = true; markFocus(); };
     const row = p.querySelector('#cbRow'), cb = p.querySelector('#cb'), bcBtn = p.querySelector('[data-bc]');
     const markBreak = () => { p.querySelectorAll('[data-b]').forEach(x => x.classList.toggle('on', !bc && +x.dataset.b === br)); bcBtn.classList.toggle('on', bc); row.hidden = !bc; };
     p.querySelectorAll('[data-b]').forEach(b => b.onclick = () => { br = +b.dataset.b; bc = false; markBreak(); });
@@ -1419,10 +1429,13 @@ function customPopover(anchor) {
     cb.oninput = () => { bm = clamp(parseInt(cb.value) || 1, 1, 120); br = bm * 60; };
     cb.onkeydown = e => { if (e.key === 'Enter') go(); };
     p.querySelectorAll('[data-bd]').forEach(b => b.onclick = () => { bm = clamp(bm + (+b.dataset.bd), 1, 120); cb.value = bm; br = bm * 60; });
-    p.querySelector('[data-go]').onclick = go;
-    p.querySelector('[data-rest]').onclick = () => { settings.custom = { focus: f * 60, brk: br }; saveSettings(); closePop(); startBreakOnly(br); };
+    goBtn.onclick = go;
   };
-  const go = () => { settings.custom = { focus: f * 60, brk: br }; saveSettings(); closePop(); if (S.phase === 'focus') switchTo('custom'); else startFocus('custom'); };
+  const go = () => {
+    settings.custom = { focus: f * 60, brk: br }; saveSettings(); closePop();
+    if (rest) return startBreakOnly(br);
+    if (S.phase === 'focus') switchTo('custom'); else startFocus('custom');
+  };
   openPop(anchor, draw(), bind);
 }
 function confirmSwitch(key, anchor) {
