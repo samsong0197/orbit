@@ -151,11 +151,11 @@ body.running .phase .dot{animation:pulse 2s ease-out infinite}
 :root:not([data-mode="dark"]) .ring-planet circle:last-child{filter:drop-shadow(0 0 3px rgba(77,171,247,.95)) drop-shadow(0 0 8px rgba(151,117,250,.6))}
 #gA{stop-color:var(--ring-a);transition:stop-color .6s}
 #gB{stop-color:var(--ring-b);transition:stop-color .6s}
-.ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;pointer-events:none}
+.ring-center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding-top:calc(var(--ring) * .08);pointer-events:none}
 .ring-center>*{pointer-events:auto}
-.time{font-size:calc(var(--ring) * .245);font-weight:230;letter-spacing:-.035em;color:var(--text-strong);line-height:1;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;transition:opacity .3s}
+.time{font-size:calc(var(--ring) * .285);font-weight:220;letter-spacing:-.035em;color:var(--text-strong);line-height:1;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;transition:opacity .3s}
 :root[data-mode="dark"] .time{font-weight:260;color:#eef1ff;text-shadow:0 0 30px rgba(165,216,255,.25)}
-.time.long{font-size:calc(var(--ring) * .19)}
+.time.long{font-size:calc(var(--ring) * .215)}
 body.paused .time{animation:blink 1.6s ease-in-out infinite}
 @keyframes blink{50%{opacity:.35}}
 .sub-line{font-size:12.5px;color:var(--muted);font-weight:550;display:flex;align-items:center;gap:6px;min-height:18px}
@@ -510,7 +510,6 @@ button,.chip,.ctrl{touch-action:manipulation}
             <div class="time num" id="time">25:00</div>
             <div class="sub-line" id="subLine"></div>
             <button class="next-pill" id="nextPill" title="이번 휴식 길이 바꾸기"><span id="nextTxt">다음 · 휴식 5분</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
-            <div class="ring-hint" id="hint"></div>
           </div>
         </div>
 
@@ -1193,6 +1192,7 @@ function renderSubject() {
   el.subjName.textContent = s.name;
 }
 function renderHint() {
+  if (!el.hint) return;
   let h = '';
   const stars = todaySessions().filter(r => r.d).length;
   if (S.phase === 'idle') {
